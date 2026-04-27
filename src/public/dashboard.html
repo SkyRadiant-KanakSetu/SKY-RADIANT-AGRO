@@ -32,10 +32,10 @@
       <div class="card">
         <div class="row">
           <input id="apiKey" placeholder="x-api-key" style="min-width: 320px" />
-          <button onclick="saveApiKey()">Save Key</button>
-          <button onclick="loadAll()">Refresh</button>
-          <button onclick="testApiKey()">Test Key</button>
-          <button onclick="useAutoAuth()">Use Auto Auth</button>
+          <button id="saveKeyBtn" type="button">Save Key</button>
+          <button id="refreshBtn" type="button">Refresh</button>
+          <button id="testKeyBtn" type="button">Test Key</button>
+          <button id="autoAuthBtn" type="button">Use Auto Auth</button>
         </div>
         <p id="keyStatus" class="status muted">Auto-auth is enabled on this server. API key input is optional.</p>
       </div>
@@ -53,8 +53,8 @@
           <input id="sourceRegion" placeholder="Source region (e.g. Delhi)" />
           <input id="targetMarket" placeholder="Target market (e.g. Noida)" />
           <input id="quantityTons" type="number" step="0.1" value="5" />
-          <button onclick="generateRecommendation()">Generate</button>
-          <button onclick="runGlobalScan()">Global Scan</button>
+          <button id="generateBtn" type="button">Generate</button>
+          <button id="globalScanBtn" type="button">Global Scan</button>
         </div>
         <p id="genMsg" class="muted"></p>
         <pre id="scanOutput" class="muted" style="white-space: pre-wrap"></pre>
@@ -223,6 +223,13 @@
           document.getElementById('scanOutput').textContent = err.message;
         }
       }
+
+      document.getElementById('saveKeyBtn').addEventListener('click', saveApiKey);
+      document.getElementById('refreshBtn').addEventListener('click', () => void loadAll());
+      document.getElementById('testKeyBtn').addEventListener('click', () => void testApiKey());
+      document.getElementById('autoAuthBtn').addEventListener('click', useAutoAuth);
+      document.getElementById('generateBtn').addEventListener('click', () => void generateRecommendation());
+      document.getElementById('globalScanBtn').addEventListener('click', () => void runGlobalScan());
 
       if (loadSavedKey()) {
         void loadAll();
