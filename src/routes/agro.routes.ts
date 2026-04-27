@@ -241,12 +241,20 @@ agroRouter.get('/intelligence/global-scan', async (req, res, next) => {
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
     const [sourcePrices, targetPrices, sourceWeather, targetWeather] = await Promise.all([
       prisma.mandiPrice.findMany({
-        where: { commodityId: commodity.id, market: { region: sourceRegion }, observedAt: { gte: since } },
+        where: {
+          commodityId: commodity.id,
+          market: { region: { equals: sourceRegion, mode: 'insensitive' } },
+          observedAt: { gte: since },
+        },
         orderBy: { observedAt: 'desc' },
         take: 24,
       }),
       prisma.mandiPrice.findMany({
-        where: { commodityId: commodity.id, market: { region: targetMarket }, observedAt: { gte: since } },
+        where: {
+          commodityId: commodity.id,
+          market: { region: { equals: targetMarket, mode: 'insensitive' } },
+          observedAt: { gte: since },
+        },
         orderBy: { observedAt: 'desc' },
         take: 24,
       }),
@@ -389,25 +397,44 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Commodity not found' } });
     }
 
+    const normalizedSourceRegion = String(sourceRegion).trim();
+    const normalizedTargetMarket = String(targetMarket).trim();
+
     const prices = await prisma.mandiPrice.findMany({
       where: {
         commodityId: commodity.id,
-        market: { region: String(sourceRegion) },
+        market: {
+          region: {
+            equals: normalizedSourceRegion,
+            mode: 'insensitive',
+          },
+        },
       },
       orderBy: { observedAt: 'desc' },
       take: 8,
     });
-    if (!prices.length) {
+    const fallbackPrices =
+      prices.length > 0
+        ? []
+        : await prisma.mandiPrice.findMany({
+            where: { commodityId: commodity.id },
+            orderBy: { observedAt: 'desc' },
+            take: 8,
+          });
+    const effectivePrices = prices.length ? prices : fallbackPrices;
+    if (!effectivePrices.length) {
       return res.status(404).json({
         success: false,
-        error: { code: 'NO_DATA', message: 'No mandi price data available for commodity + region' },
+        error: { code: 'NO_DATA', message: 'No mandi price data available for this commodity yet' },
       });
     }
 
-    const latest = Number(prices[0].priceModal);
+    const latest = Number(effectivePrices[0].priceModal);
     const average =
-      prices.reduce((acc: number, p: { priceModal: unknown }) => acc + Number(p.priceModal), 0) / prices.length;
-    const confidence = Math.max(0.2, Math.min(0.95, 0.55 + (average - latest) / Math.max(average, 1)));
+      effectivePrices.reduce((acc: number, p: { priceModal: unknown }) => acc + Number(p.priceModal), 0) /
+      effectivePrices.length;
+    const fallbackPenalty = prices.length ? 0 : 0.15;
+    const confidence = Math.max(0.2, Math.min(0.95, 0.55 + (average - latest) / Math.max(average, 1) - fallbackPenalty));
     const action = confidence > 0.62 ? 'BUY' : confidence < 0.42 ? 'SELL' : 'HOLD';
 
     const buy = latest;
@@ -419,14 +446,16 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
     const recommendation = await prisma.recommendation.create({
       data: {
         commodityId: commodity.id,
-        sourceRegion: String(sourceRegion),
-        targetMarket: String(targetMarket),
+        sourceRegion: normalizedSourceRegion,
+        targetMarket: normalizedTargetMarket,
         action: action as any,
         confidence,
         expectedMarginMin: marginMin,
         expectedMarginMax: marginMax,
         riskFlags: ['Weather and lane disruption may affect realization'],
-        assumptions: ['Based on latest 8 mandi entries'],
+        assumptions: prices.length
+          ? ['Based on latest 8 mandi entries for source region']
+          : ['Source region data unavailable; used latest commodity prices across markets'],
         payload: {
           commodity: commodity.code,
           quantityTons: Number(quantityTons),
