@@ -10,7 +10,23 @@ export function createApp() {
   const app = express();
   app.set('trust proxy', 1);
   app.use(cors());
-  app.use(helmet());
+  app.use(
+    helmet({
+      // Dashboard uses inline script/styles; allow only self + inline for now.
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:'],
+          connectSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+    })
+  );
   app.use(morgan('short'));
   app.use(express.json({ limit: '2mb' }));
   app.use(

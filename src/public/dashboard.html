@@ -19,6 +19,9 @@
       .buy { background: #dcfce7; color: #166534; }
       .sell { background: #fee2e2; color: #991b1b; }
       .hold { background: #fef9c3; color: #854d0e; }
+      .status { font-size: 12px; margin-top: 8px; }
+      .ok { color: #166534; }
+      .err { color: #b91c1c; }
     </style>
   </head>
   <body>
@@ -29,8 +32,11 @@
       <div class="card">
         <div class="row">
           <input id="apiKey" placeholder="x-api-key" style="min-width: 320px" />
+          <button onclick="saveApiKey()">Save Key</button>
           <button onclick="loadAll()">Refresh</button>
+          <button onclick="testApiKey()">Test Key</button>
         </div>
+        <p id="keyStatus" class="status muted">Add your API key and click Save Key.</p>
       </div>
 
       <div class="grid">
@@ -47,8 +53,10 @@
           <input id="targetMarket" placeholder="Target market (e.g. Noida)" />
           <input id="quantityTons" type="number" step="0.1" value="5" />
           <button onclick="generateRecommendation()">Generate</button>
+          <button onclick="runGlobalScan()">Global Scan</button>
         </div>
         <p id="genMsg" class="muted"></p>
+        <pre id="scanOutput" class="muted" style="white-space: pre-wrap"></pre>
       </div>
 
       <div class="card">
@@ -70,6 +78,30 @@
     </div>
 
     <script>
+      function setStatus(elId, text, type = 'muted') {
+        const el = document.getElementById(elId);
+        el.className = `status ${type}`;
+        el.textContent = text;
+      }
+
+      function saveApiKey() {
+        const key = document.getElementById('apiKey').value.trim();
+        if (!key) {
+          setStatus('keyStatus', 'API key is empty', 'err');
+          return;
+        }
+        localStorage.setItem('skyRadiantApiKey', key);
+        setStatus('keyStatus', 'API key saved locally in this browser', 'ok');
+      }
+
+      function loadSavedKey() {
+        const saved = localStorage.getItem('skyRadiantApiKey');
+        if (saved) {
+          document.getElementById('apiKey').value = saved;
+          setStatus('keyStatus', 'Loaded saved API key', 'ok');
+        }
+      }
+
       function headers() {
         return {
           'Content-Type': 'application/json',
@@ -79,7 +111,13 @@
 
       async function fetchJson(url, opts = {}) {
         const res = await fetch(url, opts);
-        const json = await res.json();
+        const text = await res.text();
+        let json = null;
+        try {
+          json = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(`Invalid server response (${res.status})`);
+        }
         if (!res.ok || json.success === false) {
           throw new Error(json?.error?.message || 'Request failed');
         }
@@ -93,6 +131,7 @@
 
       async function loadAll() {
         try {
+          setStatus('keyStatus', 'Loading dashboard data...', 'muted');
           const [commodities, markets, recommendations] = await Promise.all([
             fetchJson('/api/v1/commodities', { headers: headers() }),
             fetchJson('/api/v1/markets', { headers: headers() }),
@@ -115,8 +154,9 @@
               </tr>`;
             })
             .join('');
+          setStatus('keyStatus', 'Dashboard data loaded', 'ok');
         } catch (err) {
-          alert(err.message);
+          setStatus('keyStatus', err.message, 'err');
         }
       }
 
@@ -128,6 +168,7 @@
           quantityTons: Number(document.getElementById('quantityTons').value || 1),
         };
         try {
+          document.getElementById('genMsg').textContent = 'Generating recommendation...';
           const json = await fetchJson('/api/v1/recommendations/generate', {
             method: 'POST',
             headers: headers(),
@@ -139,6 +180,38 @@
           document.getElementById('genMsg').textContent = err.message;
         }
       }
+
+      async function testApiKey() {
+        try {
+          await fetchJson('/api/v1/commodities?limit=1', { headers: headers() });
+          setStatus('keyStatus', 'API key is valid', 'ok');
+        } catch (err) {
+          setStatus('keyStatus', `API key failed: ${err.message}`, 'err');
+        }
+      }
+
+      async function runGlobalScan() {
+        const commodityCode = document.getElementById('commodityCode').value.trim().toUpperCase();
+        const sourceRegion = document.getElementById('sourceRegion').value.trim();
+        const targetMarket = document.getElementById('targetMarket').value.trim();
+        if (!commodityCode || !sourceRegion || !targetMarket) {
+          document.getElementById('scanOutput').textContent = 'Enter commodity, source region, and target market first.';
+          return;
+        }
+        document.getElementById('scanOutput').textContent = 'Running global signal scan...';
+        try {
+          const json = await fetchJson(
+            `/api/v1/intelligence/global-scan?commodityCode=${encodeURIComponent(commodityCode)}&sourceRegion=${encodeURIComponent(sourceRegion)}&targetMarket=${encodeURIComponent(targetMarket)}`,
+            { headers: headers() }
+          );
+          document.getElementById('scanOutput').textContent = JSON.stringify(json.data, null, 2);
+        } catch (err) {
+          document.getElementById('scanOutput').textContent = err.message;
+        }
+      }
+
+      loadSavedKey();
+      void loadAll();
     </script>
   </body>
 </html>

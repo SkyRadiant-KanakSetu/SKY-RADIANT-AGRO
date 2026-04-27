@@ -179,6 +179,149 @@ agroRouter.get('/intelligence/storage-plan', async (req, res, next) => {
   }
 });
 
+async function fetchOpenMeteoSnapshot(region: string) {
+  const regionCoords: Record<string, { latitude: number; longitude: number }> = {
+    delhi: { latitude: 28.6139, longitude: 77.209 },
+    noida: { latitude: 28.5355, longitude: 77.391 },
+    gurgaon: { latitude: 28.4595, longitude: 77.0266 },
+    lucknow: { latitude: 26.8467, longitude: 80.9462 },
+    jaipur: { latitude: 26.9124, longitude: 75.7873 },
+    chandigarh: { latitude: 30.7333, longitude: 76.7794 },
+    amritsar: { latitude: 31.634, longitude: 74.8723 },
+  };
+
+  const key = String(region || '').trim().toLowerCase();
+  const coords = regionCoords[key];
+  if (!coords) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3500);
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.latitude}&longitude=${coords.longitude}&current=temperature_2m,relative_humidity_2m,precipitation`;
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    const json: any = await response.json();
+    const current = json?.current;
+    if (!current) return null;
+    return {
+      region,
+      tempC: current.temperature_2m ?? null,
+      humidityPct: current.relative_humidity_2m ?? null,
+      rainfallMm: current.precipitation ?? null,
+      source: 'open-meteo',
+      observedAt: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+agroRouter.get('/intelligence/global-scan', async (req, res, next) => {
+  try {
+    const commodityCode = String(req.query.commodityCode || '')
+      .trim()
+      .toUpperCase();
+    const sourceRegion = String(req.query.sourceRegion || '').trim();
+    const targetMarket = String(req.query.targetMarket || '').trim();
+    const hours = Math.max(6, Math.min(72, Number(req.query.hours || 48)));
+    if (!commodityCode || !sourceRegion || !targetMarket) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'commodityCode, sourceRegion, targetMarket are required' },
+      });
+    }
+
+    const commodity = await prisma.commodity.findUnique({ where: { code: commodityCode } });
+    if (!commodity) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Commodity not found' } });
+    }
+
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const [sourcePrices, targetPrices, sourceWeather, targetWeather] = await Promise.all([
+      prisma.mandiPrice.findMany({
+        where: { commodityId: commodity.id, market: { region: sourceRegion }, observedAt: { gte: since } },
+        orderBy: { observedAt: 'desc' },
+        take: 24,
+      }),
+      prisma.mandiPrice.findMany({
+        where: { commodityId: commodity.id, market: { region: targetMarket }, observedAt: { gte: since } },
+        orderBy: { observedAt: 'desc' },
+        take: 24,
+      }),
+      prisma.weatherSnapshot.findFirst({
+        where: { region: sourceRegion },
+        orderBy: { forecastDate: 'desc' },
+      }),
+      prisma.weatherSnapshot.findFirst({
+        where: { region: targetMarket },
+        orderBy: { forecastDate: 'desc' },
+      }),
+    ]);
+
+    const sourceLiveWeather = await fetchOpenMeteoSnapshot(sourceRegion);
+    const targetLiveWeather = await fetchOpenMeteoSnapshot(targetMarket);
+
+    const sourceModal =
+      sourcePrices.length > 0
+        ? sourcePrices.reduce((acc: number, row: { priceModal: unknown }) => acc + Number(row.priceModal), 0) / sourcePrices.length
+        : null;
+    const targetModal =
+      targetPrices.length > 0
+        ? targetPrices.reduce((acc: number, row: { priceModal: unknown }) => acc + Number(row.priceModal), 0) / targetPrices.length
+        : null;
+    const avgLogisticsPerKg = 0.6;
+
+    const grossSpread = sourceModal != null && targetModal != null ? targetModal - sourceModal : null;
+    const netSpread = grossSpread != null ? grossSpread - avgLogisticsPerKg : null;
+    const sourceRisk = String(sourceWeather?.riskLevel || 'MEDIUM');
+    const targetRisk = String(targetWeather?.riskLevel || 'MEDIUM');
+    const weatherRiskBoost = sourceRisk === 'HIGH' || targetRisk === 'HIGH' ? 0.15 : sourceRisk === 'MEDIUM' || targetRisk === 'MEDIUM' ? 0.08 : 0.03;
+
+    const confidenceBase = netSpread == null ? 0.45 : netSpread > 2 ? 0.8 : netSpread > 1 ? 0.67 : netSpread > 0.4 ? 0.58 : 0.42;
+    const confidence = Math.max(0.2, Math.min(0.95, confidenceBase - weatherRiskBoost));
+    const action = netSpread == null ? 'HOLD' : netSpread > 0.8 ? 'BUY' : netSpread < -0.2 ? 'SELL' : 'HOLD';
+
+    res.json({
+      success: true,
+      data: {
+        commodity: { code: commodity.code, name: commodity.name },
+        sourceRegion,
+        targetMarket,
+        windowHours: hours,
+        signals: {
+          priceSpread: {
+            sourceModal,
+            targetModal,
+            grossSpread,
+            avgLogisticsPerKg,
+            netSpread,
+          },
+          weather: {
+            sourceStored: sourceWeather,
+            targetStored: targetWeather,
+            sourceLive: sourceLiveWeather,
+            targetLive: targetLiveWeather,
+          },
+          logisticsSamples: 0,
+        },
+        decision: {
+          action,
+          confidence,
+          reasoning: [
+            netSpread == null ? 'Insufficient spread data, fallback to HOLD bias' : `Net spread after logistics: ${netSpread.toFixed(2)} /kg`,
+            `Weather risk profile: ${sourceRisk} (source), ${targetRisk} (target)`,
+            `Time window analyzed: last ${hours} hours`,
+          ],
+        },
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 agroRouter.post('/quality-specs', requireRole('ADMIN', 'OPS'), async (req, res, next) => {
   try {
     const { commodityCode, grade = 'A', parameter, minValue, maxValue, checklistNote } = req.body || {};
