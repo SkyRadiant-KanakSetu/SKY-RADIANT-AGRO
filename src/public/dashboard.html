@@ -99,7 +99,9 @@
         if (saved) {
           document.getElementById('apiKey').value = saved;
           setStatus('keyStatus', 'Loaded saved API key', 'ok');
+          return true;
         }
+        return false;
       }
 
       function headers() {
@@ -131,6 +133,11 @@
 
       async function loadAll() {
         try {
+          const key = document.getElementById('apiKey').value.trim();
+          if (!key) {
+            setStatus('keyStatus', 'Set API key, then click Test Key', 'muted');
+            return;
+          }
           setStatus('keyStatus', 'Loading dashboard data...', 'muted');
           const [commodities, markets, recommendations] = await Promise.all([
             fetchJson('/api/v1/commodities', { headers: headers() }),
@@ -183,6 +190,11 @@
 
       async function testApiKey() {
         try {
+          const key = document.getElementById('apiKey').value.trim();
+          if (!key) {
+            setStatus('keyStatus', 'API key is empty', 'err');
+            return;
+          }
           await fetchJson('/api/v1/commodities?limit=1', { headers: headers() });
           setStatus('keyStatus', 'API key is valid', 'ok');
         } catch (err) {
@@ -210,8 +222,11 @@
         }
       }
 
-      loadSavedKey();
-      void loadAll();
+      if (loadSavedKey()) {
+        void loadAll();
+      } else {
+        setStatus('keyStatus', 'Set API key, then click Test Key', 'muted');
+      }
     </script>
   </body>
 </html>
