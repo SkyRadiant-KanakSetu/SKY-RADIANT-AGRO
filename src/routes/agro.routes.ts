@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
+import { findOrCreateCommodity } from '../lib/commodity';
+import { ingestOgdMandiForUserRegions, isDataGovKeyConfigured } from '../lib/ogdMandi';
 import { authenticate, requireRole } from '../middleware/auth';
 
 export const agroRouter = Router();
@@ -313,11 +315,58 @@ async function ensureMandiBootstrapData(params: {
       priceMax: Number((base + dstShift + 5 + i * 0.2).toFixed(2)),
       priceModal: Number((base + dstShift + 1 + i * 0.18).toFixed(2)),
       observedAt: new Date(now - i * 60 * 60 * 1000),
-      source: 'auto-bootstrap',
+      source: 'synthetic-demo',
     });
   }
   await prisma.mandiPrice.createMany({ data: rows });
   return true;
+}
+
+function syntheticMandiAllowed() {
+  const v = process.env.ENABLE_SYNTHETIC_MANDI_BOOTSTRAP;
+  if (v === undefined || v === '') return true;
+  const s = String(v).toLowerCase();
+  if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+async function ensureMandiDataForRoute(params: {
+  commodityId: string;
+  commodityCode: string;
+  sourceRegion: string;
+  targetRegion: string;
+}): Promise<{ usedOgd: boolean; usedSynthetic: boolean }> {
+  const { commodityId, commodityCode, sourceRegion, targetRegion } = params;
+  let usedOgd = false;
+  let usedSynthetic = false;
+
+  const key = String(process.env.DATA_GOV_IN_API_KEY || '').trim();
+  if (key) {
+    try {
+      const { inserted } = await ingestOgdMandiForUserRegions(prisma, {
+        apiKey: key,
+        commodityId,
+        commodityCode,
+        userSourceRegion: sourceRegion,
+        userTargetRegion: targetRegion,
+      });
+      if (inserted > 0) usedOgd = true;
+    } catch (e) {
+      console.error('OGD mandi ingest failed', e);
+    }
+  }
+
+  if (syntheticMandiAllowed()) {
+    const did = await ensureMandiBootstrapData({
+      commodityId,
+      commodityCode,
+      sourceRegion,
+      targetRegion,
+    });
+    if (did) usedSynthetic = true;
+  }
+
+  return { usedOgd, usedSynthetic };
 }
 
 agroRouter.get('/intelligence/global-scan', async (req, res, next) => {
@@ -335,9 +384,34 @@ agroRouter.get('/intelligence/global-scan', async (req, res, next) => {
       });
     }
 
-    const commodity = await prisma.commodity.findUnique({ where: { code: commodityCode } });
-    if (!commodity) {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Commodity not found' } });
+    const commodity = await findOrCreateCommodity(prisma, commodityCode);
+
+    const key = String(process.env.DATA_GOV_IN_API_KEY || '').trim();
+    if (key) {
+      const any = await prisma.mandiPrice.count({ where: { commodityId: commodity.id } });
+      if (any === 0) {
+        try {
+          await ingestOgdMandiForUserRegions(prisma, {
+            apiKey: key,
+            commodityId: commodity.id,
+            commodityCode: commodity.code,
+            userSourceRegion: sourceRegion,
+            userTargetRegion: targetMarket,
+          });
+        } catch (e) {
+          console.error('Global scan OGD preload failed', e);
+        }
+      }
+    } else if (syntheticMandiAllowed()) {
+      const any = await prisma.mandiPrice.count({ where: { commodityId: commodity.id } });
+      if (any === 0) {
+        await ensureMandiDataForRoute({
+          commodityId: commodity.id,
+          commodityCode: commodity.code,
+          sourceRegion,
+          targetRegion: targetMarket,
+        });
+      }
     }
 
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
@@ -492,12 +566,7 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
       });
     }
 
-    const commodity = await prisma.commodity.findUnique({
-      where: { code: String(commodityCode).trim().toUpperCase() },
-    });
-    if (!commodity) {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Commodity not found' } });
-    }
+    const commodity = await findOrCreateCommodity(prisma, String(commodityCode));
 
     const normalizedSourceRegion = String(sourceRegion).trim();
     const normalizedTargetMarket = String(targetMarket).trim();
@@ -516,13 +585,17 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
       take: 8,
     });
 
+    let usedOgd = false;
+    let usedSynthetic = false;
     if (!prices.length) {
-      await ensureMandiBootstrapData({
+      const seeded = await ensureMandiDataForRoute({
         commodityId: commodity.id,
         commodityCode: commodity.code,
         sourceRegion: normalizedSourceRegion,
         targetRegion: normalizedTargetMarket,
       });
+      usedOgd = seeded.usedOgd;
+      usedSynthetic = seeded.usedSynthetic;
       prices = await prisma.mandiPrice.findMany({
         where: {
           commodityId: commodity.id,
@@ -548,9 +621,12 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
           });
     const effectivePrices = prices.length ? prices : fallbackPrices;
     if (!effectivePrices.length) {
-      return res.status(404).json({
+      const msg = isDataGovKeyConfigured()
+        ? 'No mandi price rows could be loaded for this commodity/region. Verify OGD mapping or try another region, or set ENABLE_SYNTHETIC_MANDI_BOOTSTRAP=true for demo-only data.'
+        : 'No mandi price data. Set DATA_GOV_IN_API_KEY on the server for real AGMARKNET (data.gov.in) prices, or set ENABLE_SYNTHETIC_MANDI_BOOTSTRAP=true for demo-only data.';
+      return res.status(503).json({
         success: false,
-        error: { code: 'NO_DATA', message: 'No mandi price data available for this commodity yet' },
+        error: { code: 'NO_PRICE_DATA', message: msg },
       });
     }
 
@@ -568,6 +644,14 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
     const marginMax = Math.max(marginMin, sell - buy + 0.9);
     const validUntil = new Date(Date.now() + 6 * 60 * 60 * 1000);
 
+    const dataSource: 'ogd-agmarknet' | 'synthetic-demo' | 'cached' | 'cache-fallback' = usedOgd
+      ? 'ogd-agmarknet'
+      : usedSynthetic
+        ? 'synthetic-demo'
+        : prices.length
+          ? 'cached'
+          : 'cache-fallback';
+
     const recommendation = await prisma.recommendation.create({
       data: {
         commodityId: commodity.id,
@@ -578,12 +662,18 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
         expectedMarginMin: marginMin,
         expectedMarginMax: marginMax,
         riskFlags: ['Weather and lane disruption may affect realization'],
-        assumptions: prices.length
-          ? ['Based on latest 8 mandi entries for source region']
-          : ['Source region data unavailable after bootstrap; used latest commodity prices across markets'],
+        assumptions:
+          dataSource === 'ogd-agmarknet'
+            ? ['Mandi modal/min/max from India Open Data (AGMARKNET via data.gov.in)']
+            : dataSource === 'synthetic-demo'
+              ? ['Demo-only synthetic prices — not real market data; disable ENABLE_SYNTHETIC_MANDI_BOOTSTRAP for production']
+              : prices.length
+                ? ['Based on latest 8 mandi entries for source region']
+                : ['Fell back to latest commodity prices across all regions in database'],
         payload: {
           commodity: commodity.code,
           quantityTons: Number(quantityTons),
+          dataSource,
           targetBuyRangePerKg: `${(buy * 0.98).toFixed(2)}-${(buy * 1.02).toFixed(2)}`,
           targetSellRangePerKg: `${(sell * 0.97).toFixed(2)}-${(sell * 1.03).toFixed(2)}`,
         },
