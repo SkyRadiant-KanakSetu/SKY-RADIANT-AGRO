@@ -35,8 +35,9 @@
           <button onclick="saveApiKey()">Save Key</button>
           <button onclick="loadAll()">Refresh</button>
           <button onclick="testApiKey()">Test Key</button>
+          <button onclick="useAutoAuth()">Use Auto Auth</button>
         </div>
-        <p id="keyStatus" class="status muted">Add your API key and click Save Key.</p>
+        <p id="keyStatus" class="status muted">Auto-auth is enabled on this server. API key input is optional.</p>
       </div>
 
       <div class="grid">
@@ -82,6 +83,12 @@
         const el = document.getElementById(elId);
         el.className = `status ${type}`;
         el.textContent = text;
+      }
+
+      function useAutoAuth() {
+        document.getElementById('apiKey').value = '';
+        localStorage.removeItem('skyRadiantApiKey');
+        setStatus('keyStatus', 'Using server auto-auth cookie', 'ok');
       }
 
       function saveApiKey() {
@@ -133,11 +140,6 @@
 
       async function loadAll() {
         try {
-          const key = document.getElementById('apiKey').value.trim();
-          if (!key) {
-            setStatus('keyStatus', 'Set API key, then click Test Key', 'muted');
-            return;
-          }
           setStatus('keyStatus', 'Loading dashboard data...', 'muted');
           const [commodities, markets, recommendations] = await Promise.all([
             fetchJson('/api/v1/commodities', { headers: headers() }),
@@ -163,6 +165,10 @@
             .join('');
           setStatus('keyStatus', 'Dashboard data loaded', 'ok');
         } catch (err) {
+          if ((err.message || '').includes('Missing x-api-key') || (err.message || '').includes('Invalid API key')) {
+            setStatus('keyStatus', 'Auto-auth failed. Use a valid API key once, then Save Key.', 'err');
+            return;
+          }
           setStatus('keyStatus', err.message, 'err');
         }
       }
@@ -191,12 +197,8 @@
       async function testApiKey() {
         try {
           const key = document.getElementById('apiKey').value.trim();
-          if (!key) {
-            setStatus('keyStatus', 'API key is empty', 'err');
-            return;
-          }
           await fetchJson('/api/v1/commodities?limit=1', { headers: headers() });
-          setStatus('keyStatus', 'API key is valid', 'ok');
+          setStatus('keyStatus', key ? 'API key is valid' : 'Auto-auth cookie is valid', 'ok');
         } catch (err) {
           setStatus('keyStatus', `API key failed: ${err.message}`, 'err');
         }
@@ -225,7 +227,8 @@
       if (loadSavedKey()) {
         void loadAll();
       } else {
-        setStatus('keyStatus', 'Set API key, then click Test Key', 'muted');
+        setStatus('keyStatus', 'Auto-auth is enabled on this server. API key input is optional.', 'muted');
+        void loadAll();
       }
     </script>
   </body>

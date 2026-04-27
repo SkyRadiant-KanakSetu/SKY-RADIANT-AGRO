@@ -14,12 +14,27 @@ function parseApiKeys(raw: string) {
     .filter((row) => row.key);
 }
 
+function parseCookieToken(req: Request) {
+  const rawCookie = String(req.header('cookie') || '');
+  if (!rawCookie) return '';
+  const parts = rawCookie.split(';').map((p) => p.trim());
+  const hit = parts.find((p) => p.startsWith('agro_dashboard_key='));
+  if (!hit) return '';
+  return decodeURIComponent(hit.slice('agro_dashboard_key='.length)).trim();
+}
+
+export function getConfiguredApiKeys() {
+  return parseApiKeys(process.env.API_KEYS || '');
+}
+
 export function authenticate(req: Request, res: Response, next: NextFunction) {
-  const token = String(req.header('x-api-key') || '').trim();
+  const headerToken = String(req.header('x-api-key') || '').trim();
+  const cookieToken = parseCookieToken(req);
+  const token = headerToken || cookieToken;
   if (!token) {
     return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing x-api-key' } });
   }
-  const configured = parseApiKeys(process.env.API_KEYS || '');
+  const configured = getConfiguredApiKeys();
   const hit = configured.find((row) => row.key === token);
   if (!hit) {
     return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid API key' } });
