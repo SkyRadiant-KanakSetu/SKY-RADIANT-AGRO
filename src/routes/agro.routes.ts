@@ -447,6 +447,41 @@ agroRouter.get('/intelligence/global-scan', async (req, res, next) => {
     const sourceLiveWeather = await fetchOpenMeteoSnapshot(sourceRegion);
     const targetLiveWeather = await fetchOpenMeteoSnapshot(targetMarket);
 
+    const classifyMandi = (rows: Array<{ source?: string }>) => {
+      if (!rows.length) return { tier: 'none' as const, sources: [] as string[] };
+      const sources = [...new Set(rows.map((r) => String(r.source || 'unknown')))];
+      const isReal = (s: string) => s === 'ogd-agmarknet' || s === 'manual' || s === 'seed-live';
+      const isDemo = (s: string) => s === 'synthetic-demo' || s === 'auto-bootstrap';
+      const hasReal = rows.some((r) => isReal(String(r.source || '')));
+      const hasDemo = rows.some((r) => isDemo(String(r.source || '')));
+      let tier: 'real' | 'demo' | 'mixed' | 'unknown' = 'unknown';
+      if (hasReal && hasDemo) tier = 'mixed';
+      else if (hasReal) tier = 'real';
+      else if (hasDemo) tier = 'demo';
+      return { tier, sources };
+    };
+
+    const provSource = classifyMandi(sourcePrices);
+    const provTarget = classifyMandi(targetPrices);
+    const combinedRows = [...sourcePrices, ...targetPrices];
+    const provAll = classifyMandi(combinedRows);
+    const ogdOnServer = Boolean(String(process.env.DATA_GOV_IN_API_KEY || '').trim());
+    let mandiDataQuality: 'REAL_AGMARKNET' | 'DEMO_SYNTHETIC' | 'MIXED' | 'INSUFFICIENT' = 'INSUFFICIENT';
+    if (provAll.tier === 'real') mandiDataQuality = 'REAL_AGMARKNET';
+    else if (provAll.tier === 'demo') mandiDataQuality = 'DEMO_SYNTHETIC';
+    else if (provAll.tier === 'mixed') mandiDataQuality = 'MIXED';
+    else if (provAll.tier === 'none') mandiDataQuality = 'INSUFFICIENT';
+    const mandiHint =
+      mandiDataQuality === 'REAL_AGMARKNET'
+        ? 'Mandi modal/min/max in this window come from AGMARKNET (India) via data.gov.in — official open data.'
+        : mandiDataQuality === 'DEMO_SYNTHETIC'
+          ? 'Mandi prices here are demo/synthetic. Add DATA_GOV_IN_API_KEY on the server for real AGMARKNET data.'
+          : mandiDataQuality === 'MIXED'
+            ? 'Mix of real (AGMARKNET) and demo rows in the database. Prefer a clean OGD-only dataset for production.'
+            : provAll.tier === 'none'
+              ? 'No mandi rows in the selected time window — widen hours or ingest prices.'
+              : 'Could not fully classify mandi row sources.';
+
     const sourceModal =
       sourcePrices.length > 0
         ? sourcePrices.reduce((acc: number, row: { priceModal: unknown }) => acc + Number(row.priceModal), 0) / sourcePrices.length
@@ -474,6 +509,17 @@ agroRouter.get('/intelligence/global-scan', async (req, res, next) => {
         sourceRegion,
         targetMarket,
         windowHours: hours,
+        dataProvenance: {
+          mandiDataQuality,
+          serverHasDataGovInKey: ogdOnServer,
+          sourceRows: sourcePrices.length,
+          targetRows: targetPrices.length,
+          uniqueSources: [...new Set(combinedRows.map((r) => String((r as { source?: string }).source || 'unknown')))],
+          sourceSide: provSource,
+          targetSide: provTarget,
+          weatherLive: 'open-meteo (real-time forecast API)',
+          hint: mandiHint,
+        },
         signals: {
           priceSpread: {
             sourceModal,

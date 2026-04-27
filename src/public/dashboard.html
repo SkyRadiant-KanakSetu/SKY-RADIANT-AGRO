@@ -3,78 +3,387 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sky Radiant Agro Dashboard</title>
+    <title>Sky Radiant Agro — Command Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
-      body { font-family: Arial, sans-serif; margin: 0; background: #f6f7fb; color: #111827; }
-      .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-      .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin-bottom: 16px; }
-      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-      .muted { color: #6b7280; font-size: 12px; }
-      input, button, select { padding: 8px 10px; border-radius: 8px; border: 1px solid #d1d5db; }
-      button { background: #111827; color: white; cursor: pointer; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { border-bottom: 1px solid #e5e7eb; text-align: left; padding: 8px; font-size: 13px; }
-      .row { display: flex; gap: 8px; flex-wrap: wrap; }
-      .pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 11px; }
-      .buy { background: #dcfce7; color: #166534; }
-      .sell { background: #fee2e2; color: #991b1b; }
-      .hold { background: #fef9c3; color: #854d0e; }
-      .status { font-size: 12px; margin-top: 8px; }
-      .ok { color: #166534; }
-      .err { color: #b91c1c; }
+      :root {
+        --bg: #0f1419;
+        --bg2: #1a2332;
+        --card: #ffffff;
+        --border: #e5e7eb;
+        --text: #111827;
+        --muted: #64748b;
+        --accent: #0d9488;
+        --accent2: #0f766e;
+        --real: #059669;
+        --real-bg: #d1fae5;
+        --demo: #d97706;
+        --demo-bg: #fef3c7;
+        --mixed: #2563eb;
+        --mixed-bg: #dbeafe;
+        --radius: 14px;
+        --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+        margin: 0;
+        background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 40%, #f1f5f9 100%);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      .topbar {
+        background: linear-gradient(135deg, var(--bg) 0%, var(--bg2) 100%);
+        color: #f8fafc;
+        padding: 20px 24px 28px;
+      }
+      .topbar h1 {
+        margin: 0 0 6px;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .topbar .sub {
+        margin: 0;
+        font-size: 0.875rem;
+        color: #94a3b8;
+        max-width: 640px;
+        line-height: 1.5;
+      }
+      .wrap {
+        max-width: 1120px;
+        margin: -20px auto 40px;
+        padding: 0 20px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 18px 20px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow);
+      }
+      .card h2,
+      .card h3 {
+        margin: 0 0 12px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      @media (max-width: 768px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .stat {
+        text-align: center;
+        padding: 16px;
+      }
+      .stat .num {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: -0.03em;
+      }
+      .stat .lbl {
+        font-size: 0.75rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 4px;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 0.8125rem;
+      }
+      input,
+      button,
+      select {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        font-family: inherit;
+        font-size: 0.875rem;
+      }
+      button {
+        background: var(--bg);
+        color: #fff;
+        border: none;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      button:hover {
+        background: var(--bg2);
+      }
+      button.secondary {
+        background: #fff;
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      button.secondary:hover {
+        background: #f8fafc;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+      }
+      th,
+      td {
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        padding: 10px 8px;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 3px 10px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .buy {
+        background: #d1fae5;
+        color: #065f46;
+      }
+      .sell {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .hold {
+        background: #fef9c3;
+        color: #854d0e;
+      }
+      .badge-real {
+        background: var(--real-bg);
+        color: var(--real);
+        border: 1px solid #6ee7b7;
+      }
+      .badge-demo {
+        background: var(--demo-bg);
+        color: var(--demo);
+        border: 1px solid #fcd34d;
+      }
+      .badge-mixed {
+        background: var(--mixed-bg);
+        color: var(--mixed);
+        border: 1px solid #93c5fd;
+      }
+      .badge-warn {
+        background: #f1f5f9;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .status {
+        font-size: 0.8125rem;
+        margin-top: 10px;
+      }
+      .ok {
+        color: var(--real);
+      }
+      .err {
+        color: #dc2626;
+      }
+      .scan-hero {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .decision-box {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .action-big {
+        font-size: 1.75rem;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+      }
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .metric {
+        background: #f8fafc;
+        border-radius: 10px;
+        padding: 12px 14px;
+        border: 1px solid #e2e8f0;
+      }
+      .metric .k {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .metric .v {
+        font-size: 1.125rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+      .provenance-box {
+        background: #f0fdfa;
+        border: 1px solid #99f6e4;
+        border-radius: 10px;
+        padding: 12px 14px;
+        font-size: 0.8125rem;
+        line-height: 1.55;
+        margin-bottom: 14px;
+      }
+      .provenance-box.demo {
+        background: #fffbeb;
+        border-color: #fcd34d;
+      }
+      .provenance-box.mixed {
+        background: #eff6ff;
+        border-color: #93c5fd;
+      }
+      .weather-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      @media (max-width: 560px) {
+        .weather-row {
+          grid-template-columns: 1fr;
+        }
+      }
+      .json-toggle {
+        margin-top: 12px;
+        font-size: 0.8rem;
+        color: var(--accent);
+        cursor: pointer;
+        user-select: none;
+      }
+      .json-toggle:hover {
+        text-decoration: underline;
+      }
+      pre.raw-json {
+        display: none;
+        margin-top: 10px;
+        padding: 12px;
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        overflow: auto;
+        max-height: 220px;
+      }
+      pre.raw-json.show {
+        display: block;
+      }
+      .src-pill {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 6px;
+        vertical-align: middle;
+      }
+      .src-real {
+        background: #d1fae5;
+        color: #047857;
+      }
+      .src-demo {
+        background: #fef3c7;
+        color: #b45309;
+      }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <h1>Sky Radiant Agro Command Center</h1>
-      <p class="muted">Standalone intelligence dashboard</p>
-      <p class="muted" style="font-size: 12px; max-width: 720px">
-        Mandi prices: with <code>DATA_GOV_IN_API_KEY</code> on the server, we pull real AGMARKNET data via
-        <a href="https://www.data.gov.in/" target="_blank" rel="noopener">data.gov.in</a>.
-        Otherwise rows may be <strong>demo/synthetic</strong> — set that key for production.
+    <header class="topbar">
+      <h1>Sky Radiant Agro — Command Center</h1>
+      <p class="sub">
+        Procurement intelligence: mandi spread, live weather, and action signals. Mandi prices are
+        <strong>real (AGMARKNET)</strong> only when the server has
+        <code style="color: #5eead4">DATA_GOV_IN_API_KEY</code> and rows are ingested from
+        <a href="https://www.data.gov.in/" target="_blank" rel="noopener" style="color: #2dd4bf">data.gov.in</a>. Otherwise you may see <strong>demo/synthetic</strong> data for testing.
       </p>
+    </header>
 
+    <div class="wrap">
       <div class="card">
+        <h3>Access</h3>
         <div class="row">
-          <input id="apiKey" placeholder="x-api-key" style="min-width: 320px" />
-          <button id="saveKeyBtn" type="button">Save Key</button>
-          <button id="refreshBtn" type="button">Refresh</button>
-          <button id="testKeyBtn" type="button">Test Key</button>
-          <button id="autoAuthBtn" type="button">Use Auto Auth</button>
+          <input id="apiKey" placeholder="x-api-key (optional — auto-auth cookie)" style="min-width: 280px; flex: 1" />
+          <button type="button" id="saveKeyBtn" class="secondary">Save Key</button>
+          <button type="button" id="refreshBtn">Refresh</button>
+          <button type="button" id="testKeyBtn" class="secondary">Test Key</button>
+          <button type="button" id="autoAuthBtn" class="secondary">Use Auto Auth</button>
         </div>
-        <p id="keyStatus" class="status muted">Auto-auth is enabled on this server. API key input is optional.</p>
+        <p id="keyStatus" class="status muted">Loading…</p>
       </div>
 
       <div class="grid">
-        <div class="card"><h3>Commodities</h3><div id="commoditiesCount">0</div></div>
-        <div class="card"><h3>Markets</h3><div id="marketsCount">0</div></div>
-        <div class="card"><h3>Recommendations</h3><div id="recommendationsCount">0</div></div>
-      </div>
-
-      <div class="card">
-        <h3>Generate Recommendation</h3>
-        <div class="row">
-          <input id="commodityCode" placeholder="Commodity code (e.g. TOMATO)" />
-          <input id="sourceRegion" placeholder="Source region (e.g. Delhi)" />
-          <input id="targetMarket" placeholder="Target market (e.g. Noida)" />
-          <input id="quantityTons" type="number" step="0.1" value="5" />
-          <button id="generateBtn" type="button">Generate</button>
-          <button id="globalScanBtn" type="button">Global Scan</button>
+        <div class="card stat">
+          <div class="num" id="commoditiesCount">0</div>
+          <div class="lbl">Commodities</div>
         </div>
-        <p id="genMsg" class="muted"></p>
-        <pre id="scanOutput" class="muted" style="white-space: pre-wrap"></pre>
+        <div class="card stat">
+          <div class="num" id="marketsCount">0</div>
+          <div class="lbl">Markets</div>
+        </div>
+        <div class="card stat">
+          <div class="num" id="recommendationsCount">0</div>
+          <div class="lbl">Recommendations</div>
+        </div>
       </div>
 
       <div class="card">
-        <h3>Latest Recommendations</h3>
+        <h2>Run analysis</h2>
+        <div class="row">
+          <input id="commodityCode" placeholder="Commodity (e.g. ONION)" style="min-width: 100px" />
+          <input id="sourceRegion" placeholder="Source (e.g. Delhi)" style="min-width: 120px" />
+          <input id="targetMarket" placeholder="Target (e.g. Noida)" style="min-width: 120px" />
+          <input id="quantityTons" type="number" step="0.1" value="5" style="width: 80px" />
+          <button type="button" id="generateBtn">Generate</button>
+          <button type="button" id="globalScanBtn" class="secondary">Global scan</button>
+        </div>
+        <p id="genMsg" class="muted" style="margin-top: 10px"></p>
+        <div id="scanPanel" style="display: none; margin-top: 16px"></div>
+        <p class="json-toggle" id="jsonToggle" style="display: none">▸ Show raw API JSON</p>
+        <pre class="raw-json" id="scanOutput"></pre>
+      </div>
+
+      <div class="card">
+        <h2>Latest recommendations</h2>
         <table>
           <thead>
             <tr>
               <th>Commodity</th>
+              <th>Data</th>
               <th>Action</th>
-              <th>Confidence</th>
-              <th>Source</th>
-              <th>Target</th>
+              <th>Conf.</th>
+              <th>Source → Target</th>
               <th>Created</th>
             </tr>
           </thead>
@@ -103,7 +412,7 @@
           return;
         }
         localStorage.setItem('skyRadiantApiKey', key);
-        setStatus('keyStatus', 'API key saved locally in this browser', 'ok');
+        setStatus('keyStatus', 'API key saved in this browser', 'ok');
       }
 
       function loadSavedKey() {
@@ -138,14 +447,110 @@
         return json;
       }
 
+      function inr(n) {
+        if (n == null || Number.isNaN(n)) return '—';
+        return '₹' + Number(n).toFixed(2) + '/kg';
+      }
+
+      function provenanceBadge(q) {
+        if (q === 'REAL_AGMARKNET') return '<span class="pill badge-real">REAL — AGMARKNET (India)</span>';
+        if (q === 'DEMO_SYNTHETIC') return '<span class="pill badge-demo">DEMO / synthetic</span>';
+        if (q === 'MIXED') return '<span class="pill badge-mixed">Mixed real + demo</span>';
+        return '<span class="pill badge-warn">Insufficient / unknown</span>';
+      }
+
       function actionPill(action) {
         const cls = action === 'BUY' ? 'buy' : action === 'SELL' ? 'sell' : 'hold';
-        return `<span class="pill ${cls}">${action}</span>`;
+        return '<span class="pill ' + cls + '">' + action + '</span>';
+      }
+
+      function payloadSourcePill(p) {
+        if (!p || typeof p !== 'object') return '<span class="src-pill src-demo">?</span>';
+        const ds = p.dataSource;
+        if (ds === 'ogd-agmarknet') return '<span class="src-pill src-real" title="Mandi from data.gov.in">AGMARKNET</span>';
+        if (ds === 'synthetic-demo') return '<span class="src-pill src-demo" title="Demo data">DEMO</span>';
+        if (ds === 'cached' || ds === 'cache-fallback') return '<span class="src-pill src-real" style="background:#e0e7ff;color:#3730a3">DB</span>';
+        return '';
+      }
+
+      function renderGlobalScan(d) {
+        const prov = d.dataProvenance || {};
+        const q = prov.mandiDataQuality || 'INSUFFICIENT';
+        const provClass = q === 'REAL_AGMARKNET' ? '' : q === 'DEMO_SYNTHETIC' ? 'demo' : q === 'MIXED' ? 'mixed' : '';
+        const ps = d.signals && d.signals.priceSpread ? d.signals.priceSpread : {};
+        const wx = d.signals && d.signals.weather ? d.signals.weather : {};
+        const dec = d.decision || {};
+        const act = dec.action || 'HOLD';
+        const actClass = act === 'BUY' ? 'buy' : act === 'SELL' ? 'sell' : 'hold';
+
+        let html = '';
+        html += '<div class="scan-hero"><div class="provenance-box ' + provClass + '">';
+        html += '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">';
+        html += provenanceBadge(q);
+        if (prov.serverHasDataGovInKey) {
+          html += '<span class="muted" style="font-size:0.75rem">Server: data.gov.in key is set</span>';
+        } else {
+          html += '<span class="muted" style="font-size:0.75rem">Server: no DATA_GOV_IN_API_KEY (cannot pull official mandi from API until configured)</span>';
+        }
+        html += '</div>';
+        html += '<div>' + (prov.hint || '—') + '</div>';
+        if (prov.uniqueSources && prov.uniqueSources.length) {
+          html += '<div class="muted" style="margin-top:8px">Row sources in DB: <code>' + prov.uniqueSources.join(', ') + '</code></div>';
+        }
+        html += '</div></div>';
+
+        html += '<div class="decision-box">';
+        html += '<span class="action-big">' + (d.commodity && d.commodity.code ? d.commodity.code : '—') + '</span>';
+        html += '<span class="pill ' + actClass + '" style="font-size:1rem;padding:6px 14px">' + act + '</span>';
+        html += '<span class="muted">Confidence <strong style="color:#0f172a">' + (dec.confidence != null ? Number(dec.confidence).toFixed(2) : '—') + '</strong></span>';
+        html += '<span class="muted">Window: ' + (d.windowHours != null ? d.windowHours : '—') + ' h</span>';
+        html += '</div>';
+
+        html += '<div class="metric-grid">';
+        html += '<div class="metric"><div class="k">Source modal (avg)</div><div class="v">' + inr(ps.sourceModal) + '</div></div>';
+        html += '<div class="metric"><div class="k">Target modal (avg)</div><div class="v">' + inr(ps.targetModal) + '</div></div>';
+        html += '<div class="metric"><div class="k">Gross spread</div><div class="v">' + inr(ps.grossSpread) + '</div></div>';
+        html += '<div class="metric"><div class="k">Logistics (est.)</div><div class="v">' + inr(ps.avgLogisticsPerKg) + '</div></div>';
+        html += '<div class="metric"><div class="k">Net spread</div><div class="v">' + inr(ps.netSpread) + '</div></div>';
+        html += '</div>';
+
+        if (dec.reasoning && dec.reasoning.length) {
+          html += '<p class="muted" style="margin-top:14px"><strong>Reasoning</strong></p><ul class="muted" style="margin:6px 0 0 18px;line-height:1.6">';
+          dec.reasoning.forEach((r) => {
+            html += '<li>' + r + '</li>';
+          });
+          html += '</ul>';
+        }
+
+        if (wx.sourceLive || wx.targetLive) {
+          html += '<p class="muted" style="margin-top:16px"><strong>Live weather (Open-Meteo)</strong></p><div class="weather-row">';
+          if (wx.sourceLive) {
+            const s = wx.sourceLive;
+            html +=
+              '<div class="metric"><div class="k">' + (s.region || 'Source') + '</div><div class="v" style="font-size:0.9rem">' +
+              (s.tempC != null ? s.tempC + '°C' : '—') +
+              ' · ' +
+              (s.humidityPct != null ? s.humidityPct + '% RH' : '—') +
+              '</div></div>';
+          }
+          if (wx.targetLive) {
+            const t = wx.targetLive;
+            html +=
+              '<div class="metric"><div class="k">' + (t.region || 'Target') + '</div><div class="v" style="font-size:0.9rem">' +
+              (t.tempC != null ? t.tempC + '°C' : '—') +
+              ' · ' +
+              (t.humidityPct != null ? t.humidityPct + '% RH' : '—') +
+              '</div></div>';
+          }
+          html += '</div>';
+        }
+
+        return html;
       }
 
       async function loadAll() {
         try {
-          setStatus('keyStatus', 'Loading dashboard data...', 'muted');
+          setStatus('keyStatus', 'Loading…', 'muted');
           const [commodities, markets, recommendations] = await Promise.all([
             fetchJson('/api/v1/commodities', { headers: headers() }),
             fetchJson('/api/v1/markets', { headers: headers() }),
@@ -158,20 +563,29 @@
           const body = document.getElementById('recommendationsBody');
           body.innerHTML = recommendations.data
             .map((r) => {
-              return `<tr>
-                <td>${r.commodity?.code || '-'}</td>
-                <td>${actionPill(r.action)}</td>
-                <td>${Number(r.confidence).toFixed(3)}</td>
-                <td>${r.sourceRegion}</td>
-                <td>${r.targetMarket}</td>
-                <td>${new Date(r.createdAt).toLocaleString()}</td>
-              </tr>`;
+              return (
+                '<tr><td><strong>' +
+                (r.commodity && r.commodity.code ? r.commodity.code : '—') +
+                '</strong></td><td>' +
+                payloadSourcePill(r.payload) +
+                '</td><td>' +
+                actionPill(r.action) +
+                '</td><td>' +
+                (r.confidence != null ? Number(r.confidence).toFixed(3) : '—') +
+                '</td><td>' +
+                (r.sourceRegion || '') +
+                ' → ' +
+                (r.targetMarket || '') +
+                '</td><td>' +
+                new Date(r.createdAt).toLocaleString() +
+                '</td></tr>'
+              );
             })
             .join('');
-          setStatus('keyStatus', 'Dashboard data loaded', 'ok');
+          setStatus('keyStatus', 'Dashboard ready', 'ok');
         } catch (err) {
           if ((err.message || '').includes('Missing x-api-key') || (err.message || '').includes('Invalid API key')) {
-            setStatus('keyStatus', 'Auto-auth failed. Use a valid API key once, then Save Key.', 'err');
+            setStatus('keyStatus', 'Auto-auth failed. Paste a valid API key, then Save Key.', 'err');
             return;
           }
           setStatus('keyStatus', err.message, 'err');
@@ -186,13 +600,20 @@
           quantityTons: Number(document.getElementById('quantityTons').value || 1),
         };
         try {
-          document.getElementById('genMsg').textContent = 'Generating recommendation...';
+          document.getElementById('genMsg').textContent = 'Generating…';
           const json = await fetchJson('/api/v1/recommendations/generate', {
             method: 'POST',
             headers: headers(),
             body: JSON.stringify(payload),
           });
-          document.getElementById('genMsg').textContent = `Generated: ${json.data.id}`;
+          const p = json.data && json.data.payload;
+          const tag =
+            p && p.dataSource === 'ogd-agmarknet' ? ' (AGMARKNET)' : p && p.dataSource === 'synthetic-demo' ? ' (DEMO)' : '';
+          document.getElementById('genMsg').textContent = 'Saved recommendation ' + json.data.id + tag;
+          document.getElementById('scanPanel').style.display = 'none';
+          document.getElementById('jsonToggle').style.display = 'none';
+          document.getElementById('scanOutput').textContent = '';
+          document.getElementById('scanOutput').classList.remove('show');
           await loadAll();
         } catch (err) {
           document.getElementById('genMsg').textContent = err.message;
@@ -203,31 +624,51 @@
         try {
           const key = document.getElementById('apiKey').value.trim();
           await fetchJson('/api/v1/commodities?limit=1', { headers: headers() });
-          setStatus('keyStatus', key ? 'API key is valid' : 'Auto-auth cookie is valid', 'ok');
+          setStatus('keyStatus', key ? 'API key OK' : 'Auto-auth cookie OK', 'ok');
         } catch (err) {
-          setStatus('keyStatus', `API key failed: ${err.message}`, 'err');
+          setStatus('keyStatus', 'Auth failed: ' + err.message, 'err');
         }
       }
 
+      let lastScanJson = null;
       async function runGlobalScan() {
         const commodityCode = document.getElementById('commodityCode').value.trim().toUpperCase();
         const sourceRegion = document.getElementById('sourceRegion').value.trim();
         const targetMarket = document.getElementById('targetMarket').value.trim();
         if (!commodityCode || !sourceRegion || !targetMarket) {
-          document.getElementById('scanOutput').textContent = 'Enter commodity, source region, and target market first.';
+          document.getElementById('genMsg').textContent = 'Fill commodity, source, and target first.';
           return;
         }
-        document.getElementById('scanOutput').textContent = 'Running global signal scan...';
+        document.getElementById('genMsg').textContent = 'Running global scan…';
+        document.getElementById('scanPanel').style.display = 'block';
+        document.getElementById('scanPanel').innerHTML = '<p class="muted">Loading…</p>';
         try {
           const json = await fetchJson(
-            `/api/v1/intelligence/global-scan?commodityCode=${encodeURIComponent(commodityCode)}&sourceRegion=${encodeURIComponent(sourceRegion)}&targetMarket=${encodeURIComponent(targetMarket)}`,
+            '/api/v1/intelligence/global-scan?commodityCode=' +
+              encodeURIComponent(commodityCode) +
+              '&sourceRegion=' +
+              encodeURIComponent(sourceRegion) +
+              '&targetMarket=' +
+              encodeURIComponent(targetMarket),
             { headers: headers() }
           );
+          lastScanJson = json.data;
+          document.getElementById('scanPanel').innerHTML = renderGlobalScan(json.data);
           document.getElementById('scanOutput').textContent = JSON.stringify(json.data, null, 2);
+          document.getElementById('jsonToggle').style.display = 'block';
+          document.getElementById('jsonToggle').textContent = '▸ Show raw API JSON';
+          document.getElementById('scanOutput').classList.remove('show');
+          document.getElementById('genMsg').textContent = 'Global scan complete.';
         } catch (err) {
-          document.getElementById('scanOutput').textContent = err.message;
+          document.getElementById('scanPanel').innerHTML = '<p class="err">' + err.message + '</p>';
         }
       }
+
+      document.getElementById('jsonToggle').addEventListener('click', function () {
+        const pre = document.getElementById('scanOutput');
+        const on = pre.classList.toggle('show');
+        this.textContent = on ? '▾ Hide raw API JSON' : '▸ Show raw API JSON';
+      });
 
       document.getElementById('saveKeyBtn').addEventListener('click', saveApiKey);
       document.getElementById('refreshBtn').addEventListener('click', () => void loadAll());
@@ -239,7 +680,7 @@
       if (loadSavedKey()) {
         void loadAll();
       } else {
-        setStatus('keyStatus', 'Auto-auth is enabled on this server. API key input is optional.', 'muted');
+        setStatus('keyStatus', 'Auto-auth enabled. Optional: paste API key and Save Key.', 'muted');
         void loadAll();
       }
     </script>
