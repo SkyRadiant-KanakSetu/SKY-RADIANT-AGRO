@@ -5,7 +5,7 @@
  * Resource: Current daily price of various commodities from various markets (Mandi)
  */
 
-import type { PrismaClient } from '../generated/prisma';
+import type { PrismaClient } from '@prisma/client';
 
 const OGD_DATASTORE_SEARCH = 'https://www.data.gov.in/api/3/action/datastore_search';
 const DEFAULT_RESOURCE_ID = '9ef84268-d588-465a-a308-a864a43d0070';

@@ -1,4 +1,4 @@
-import type { PrismaClient } from '../generated/prisma';
+import type { PrismaClient } from '@prisma/client';
 
 function slugToCode(raw: string): string {
   return String(raw || '')
