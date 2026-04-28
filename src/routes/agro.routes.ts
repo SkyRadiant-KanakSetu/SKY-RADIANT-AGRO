@@ -45,6 +45,43 @@ agroRouter.get('/markets', async (_req, res, next) => {
   }
 });
 
+agroRouter.get('/mandi-prices', async (req, res, next) => {
+  try {
+    const commodityCode = String(req.query.commodityCode || '')
+      .trim()
+      .toUpperCase();
+    const region = String(req.query.region || '').trim();
+    const days = Math.max(1, Math.min(30, Number(req.query.days || 7)));
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 200)));
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const rows = await prisma.mandiPrice.findMany({
+      where: {
+        observedAt: { gte: since },
+        commodity: commodityCode ? { code: commodityCode } : undefined,
+        market: region
+          ? {
+              region: {
+                equals: region,
+                mode: 'insensitive',
+              },
+            }
+          : undefined,
+      },
+      include: {
+        commodity: { select: { code: true, name: true } },
+        market: { select: { name: true, region: true, type: true } },
+      },
+      orderBy: { observedAt: 'desc' },
+      take: limit,
+    });
+
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
 agroRouter.post('/markets', async (req, res, next) => {
   try {
     const { name, region, type = 'MANDI' } = req.body || {};
@@ -330,18 +367,38 @@ function syntheticMandiAllowed() {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
+type MandiRowSource = { source: string };
+
+function dataSourceFromMandiRows(
+  rows: MandiRowSource[],
+  usedCrossRegionFallback: boolean
+): 'ogd-agmarknet' | 'synthetic-demo' | 'cached' | 'cache-fallback' | 'mixed' {
+  if (rows.length === 0) return 'cache-fallback';
+  const isOgd = (s: string) => s === 'ogd-agmarknet' || s === 'manual' || s === 'seed-live';
+  const isDemo = (s: string) => s === 'synthetic-demo' || s === 'auto-bootstrap';
+  const hasOgd = rows.some((r) => isOgd(String(r.source || '')));
+  const hasDemo = rows.some((r) => isDemo(String(r.source || '')));
+  if (hasOgd && hasDemo) return 'mixed';
+  if (hasOgd) return 'ogd-agmarknet';
+  if (hasDemo) return 'synthetic-demo';
+  if (usedCrossRegionFallback) return 'cache-fallback';
+  return 'cached';
+}
+
 async function ensureMandiDataForRoute(params: {
   commodityId: string;
   commodityCode: string;
   sourceRegion: string;
   targetRegion: string;
+  /** When true, skip OGD (caller already ran ingest this request). */
+  skipOgd?: boolean;
 }): Promise<{ usedOgd: boolean; usedSynthetic: boolean }> {
-  const { commodityId, commodityCode, sourceRegion, targetRegion } = params;
+  const { commodityId, commodityCode, sourceRegion, targetRegion, skipOgd } = params;
   let usedOgd = false;
   let usedSynthetic = false;
 
   const key = String(process.env.DATA_GOV_IN_API_KEY || '').trim();
-  if (key) {
+  if (key && !skipOgd) {
     try {
       const { inserted } = await ingestOgdMandiForUserRegions(prisma, {
         apiKey: key,
@@ -617,6 +674,21 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
     const normalizedSourceRegion = String(sourceRegion).trim();
     const normalizedTargetMarket = String(targetMarket).trim();
 
+    const dataGovKey = String(process.env.DATA_GOV_IN_API_KEY || '').trim();
+    if (dataGovKey) {
+      try {
+        await ingestOgdMandiForUserRegions(prisma, {
+          apiKey: dataGovKey,
+          commodityId: commodity.id,
+          commodityCode: commodity.code,
+          userSourceRegion: normalizedSourceRegion,
+          userTargetRegion: normalizedTargetMarket,
+        });
+      } catch (e) {
+        console.error('OGD mandi ingest (generate) failed', e);
+      }
+    }
+
     let prices = await prisma.mandiPrice.findMany({
       where: {
         commodityId: commodity.id,
@@ -631,17 +703,14 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
       take: 8,
     });
 
-    let usedOgd = false;
-    let usedSynthetic = false;
     if (!prices.length) {
-      const seeded = await ensureMandiDataForRoute({
+      await ensureMandiDataForRoute({
         commodityId: commodity.id,
         commodityCode: commodity.code,
         sourceRegion: normalizedSourceRegion,
         targetRegion: normalizedTargetMarket,
+        skipOgd: Boolean(dataGovKey),
       });
-      usedOgd = seeded.usedOgd;
-      usedSynthetic = seeded.usedSynthetic;
       prices = await prisma.mandiPrice.findMany({
         where: {
           commodityId: commodity.id,
@@ -690,13 +759,11 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
     const marginMax = Math.max(marginMin, sell - buy + 0.9);
     const validUntil = new Date(Date.now() + 6 * 60 * 60 * 1000);
 
-    const dataSource: 'ogd-agmarknet' | 'synthetic-demo' | 'cached' | 'cache-fallback' = usedOgd
-      ? 'ogd-agmarknet'
-      : usedSynthetic
-        ? 'synthetic-demo'
-        : prices.length
-          ? 'cached'
-          : 'cache-fallback';
+    const usedCrossRegionFallback = !prices.length && effectivePrices.length > 0;
+    const dataSource: 'ogd-agmarknet' | 'synthetic-demo' | 'cached' | 'cache-fallback' | 'mixed' = dataSourceFromMandiRows(
+      effectivePrices,
+      usedCrossRegionFallback
+    );
 
     const recommendation = await prisma.recommendation.create({
       data: {
@@ -711,11 +778,13 @@ agroRouter.post('/recommendations/generate', async (req, res, next) => {
         assumptions:
           dataSource === 'ogd-agmarknet'
             ? ['Mandi modal/min/max from India Open Data (AGMARKNET via data.gov.in)']
-            : dataSource === 'synthetic-demo'
-              ? ['Demo-only synthetic prices — not real market data; disable ENABLE_SYNTHETIC_MANDI_BOOTSTRAP for production']
-              : prices.length
-                ? ['Based on latest 8 mandi entries for source region']
-                : ['Fell back to latest commodity prices across all regions in database'],
+            : dataSource === 'mixed'
+              ? ['Some mandi rows from AGMARKNET and some from demo/synthetic; prefer ENABLE_SYNTHETIC_MANDI_BOOTSTRAP=false in production for cleaner provenance']
+              : dataSource === 'synthetic-demo'
+                ? ['Demo-only synthetic prices — not real market data; disable ENABLE_SYNTHETIC_MANDI_BOOTSTRAP for production']
+                : prices.length
+                  ? ['Based on latest 8 mandi entries for source region']
+                  : ['Fell back to latest commodity prices across all regions in database'],
         payload: {
           commodity: commodity.code,
           quantityTons: Number(quantityTons),

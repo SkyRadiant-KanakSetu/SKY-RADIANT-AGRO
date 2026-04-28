@@ -376,6 +376,12 @@
           <select id="targetMarket" style="min-width: 180px">
             <option value="">Select target region</option>
           </select>
+          <select id="analysisHours" style="min-width: 140px">
+            <option value="24">Last 24 hours</option>
+            <option value="48" selected>Last 48 hours</option>
+            <option value="72">Last 72 hours</option>
+            <option value="168">Last 7 days</option>
+          </select>
           <input id="quantityTons" type="number" step="0.1" value="5" style="width: 80px" />
           <button type="button" id="generateBtn">Generate</button>
           <button type="button" id="globalScanBtn" class="secondary">Global scan</button>
@@ -400,6 +406,28 @@
             </tr>
           </thead>
           <tbody id="recommendationsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Daily mandi rates</h2>
+        <p class="muted" style="margin: 0 0 10px">
+          Live table from API for the selected commodity/source and duration window.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Observed</th>
+              <th>Commodity</th>
+              <th>Market</th>
+              <th>Region</th>
+              <th>Min</th>
+              <th>Modal</th>
+              <th>Max</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="mandiRatesBody"></tbody>
         </table>
       </div>
     </div>
@@ -516,7 +544,7 @@
           .join(' ');
       }
 
-      function populateAnalysisFilters(commodities, markets) {
+      function populateAnalysisFilters(commodities, markets, mandiRates) {
         const commoditySelect = document.getElementById('commodityCode');
         const sourceSelect = document.getElementById('sourceRegion');
         const targetSelect = document.getElementById('targetMarket');
@@ -525,15 +553,27 @@
         const currentSource = sourceSelect.value;
         const currentTarget = targetSelect.value;
 
+        const commodityFromRates = (mandiRates || [])
+          .map((r) => r && r.commodity)
+          .filter(Boolean)
+          .map((c) => ({ code: String(c.code || '').toUpperCase(), name: String(c.name || c.code || '').trim() }))
+          .filter((c) => c.code);
+        const allCommodityMap = new Map();
+        [...commodityFromRates, ...(commodities || [])].forEach((c) => {
+          const code = String(c.code || '').toUpperCase();
+          if (!code) return;
+          if (!allCommodityMap.has(code)) allCommodityMap.set(code, { code, name: String(c.name || code) });
+        });
         const commodityOptions = ['<option value="">Select commodity</option>'].concat(
-          commodities
+          [...allCommodityMap.values()]
             .slice()
             .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code)))
             .map((c) => `<option value="${esc(c.code)}">${esc(String(c.name || c.code))} (${esc(c.code)})</option>`)
         );
         commoditySelect.innerHTML = commodityOptions.join('');
 
-        const regions = [...new Set(markets.map((m) => String(m.region || '').trim()).filter(Boolean))]
+        const regionFromRates = (mandiRates || []).map((r) => String((r.market && r.market.region) || '').trim()).filter(Boolean);
+        const regions = [...new Set([...(markets || []).map((m) => String(m.region || '').trim()), ...regionFromRates].filter(Boolean))]
           .sort((a, b) => a.localeCompare(b))
           .map((r) => ({ value: r, label: labelCase(r) }));
 
@@ -669,15 +709,70 @@
         return html;
       }
 
+      function renderDailyMandiRates(rows) {
+        const body = document.getElementById('mandiRatesBody');
+        if (!rows || rows.length === 0) {
+          body.innerHTML = '<tr><td colspan="8" class="muted">No mandi rows found for selected filters.</td></tr>';
+          return;
+        }
+        body.innerHTML = rows
+          .map((r) => {
+            const src = String(r.source || '');
+            const srcPill =
+              src === 'ogd-agmarknet' || src === 'seed-live' || src === 'manual'
+                ? '<span class="src-pill src-real">' + esc(src) + '</span>'
+                : src === 'synthetic-demo' || src === 'auto-bootstrap'
+                  ? '<span class="src-pill src-demo">' + esc(src) + '</span>'
+                  : '<span class="src-pill" style="background:#e2e8f0;color:#334155">' + esc(src || 'unknown') + '</span>';
+            return (
+              '<tr><td>' +
+              new Date(r.observedAt).toLocaleString() +
+              '</td><td><strong>' +
+              esc((r.commodity && r.commodity.code) || '—') +
+              '</strong></td><td>' +
+              esc((r.market && r.market.name) || '—') +
+              '</td><td>' +
+              esc(labelCase((r.market && r.market.region) || '')) +
+              '</td><td>' +
+              inr(r.priceMin) +
+              '</td><td>' +
+              inr(r.priceModal) +
+              '</td><td>' +
+              inr(r.priceMax) +
+              '</td><td>' +
+              srcPill +
+              '</td></tr>'
+            );
+          })
+          .join('');
+      }
+
+      async function loadDailyMandiRates() {
+        const commodityCode = document.getElementById('commodityCode').value.trim().toUpperCase();
+        const region = document.getElementById('sourceRegion').value.trim();
+        const hours = Number(document.getElementById('analysisHours').value || 48);
+        const days = Math.max(1, Math.ceil(hours / 24));
+        const qs =
+          '?days=' +
+          encodeURIComponent(String(days)) +
+          '&limit=250' +
+          (commodityCode ? '&commodityCode=' + encodeURIComponent(commodityCode) : '') +
+          (region ? '&region=' + encodeURIComponent(region) : '');
+        const json = await fetchJson('/api/v1/mandi-prices' + qs, { headers: headers() });
+        renderDailyMandiRates(json.data || []);
+        return json.data || [];
+      }
+
       async function loadAll() {
         try {
           setStatus('keyStatus', 'Loading…', 'muted');
-          const [commodities, markets, recommendations] = await Promise.all([
+          const [commodities, markets, recommendations, mandiRates] = await Promise.all([
             fetchJson('/api/v1/commodities', { headers: headers() }),
             fetchJson('/api/v1/markets', { headers: headers() }),
             fetchJson('/api/v1/recommendations?limit=20', { headers: headers() }),
+            loadDailyMandiRates(),
           ]);
-          populateAnalysisFilters(commodities.data || [], markets.data || []);
+          populateAnalysisFilters(commodities.data || [], markets.data || [], mandiRates || []);
           document.getElementById('commoditiesCount').textContent = commodities.data.length;
           document.getElementById('marketsCount').textContent = markets.data.length;
           document.getElementById('recommendationsCount').textContent = recommendations.data.length;
@@ -777,7 +872,9 @@
               '&sourceRegion=' +
               encodeURIComponent(sourceRegion) +
               '&targetMarket=' +
-              encodeURIComponent(targetMarket),
+              encodeURIComponent(targetMarket) +
+              '&hours=' +
+              encodeURIComponent(document.getElementById('analysisHours').value || '48'),
             { headers: headers() }
           );
           lastScanJson = json.data;
@@ -787,6 +884,7 @@
           document.getElementById('jsonToggle').textContent = '▸ Show raw API JSON';
           document.getElementById('scanOutput').classList.remove('show');
           document.getElementById('genMsg').textContent = 'Global scan complete.';
+          await loadDailyMandiRates();
         } catch (err) {
           document.getElementById('scanPanel').innerHTML = '<p class="err">' + err.message + '</p>';
         }
@@ -804,6 +902,9 @@
       document.getElementById('autoAuthBtn').addEventListener('click', useAutoAuth);
       document.getElementById('generateBtn').addEventListener('click', () => void generateRecommendation());
       document.getElementById('globalScanBtn').addEventListener('click', () => void runGlobalScan());
+      document.getElementById('analysisHours').addEventListener('change', () => void loadDailyMandiRates());
+      document.getElementById('commodityCode').addEventListener('change', () => void loadDailyMandiRates());
+      document.getElementById('sourceRegion').addEventListener('change', () => void loadDailyMandiRates());
 
       if (loadSavedKey()) {
         void loadAll();
