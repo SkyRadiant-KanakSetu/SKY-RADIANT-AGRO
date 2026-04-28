@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { findOrCreateCommodity } from '../lib/commodity';
-import { ingestOgdMandiForUserRegions, isDataGovKeyConfigured } from '../lib/ogdMandi';
+import { ingestOgdMandiForUserRegions, isDataGovKeyConfigured, fetchOgdCommodityCatalog } from '../lib/ogdMandi';
 import { authenticate, requireRole } from '../middleware/auth';
 
 export const agroRouter = Router();
@@ -10,7 +10,42 @@ agroRouter.use(authenticate);
 agroRouter.get('/commodities', async (_req, res, next) => {
   try {
     const rows = await prisma.commodity.findMany({ orderBy: { name: 'asc' } });
-    res.json({ success: true, data: rows });
+
+    const dbMapped = rows.map((r) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      category: r.category,
+      defaultShelfLifeDays: r.defaultShelfLifeDays,
+      createdAt: r.createdAt,
+      source: 'db' as const,
+    }));
+
+    const ogdRows = await fetchOgdCommodityCatalog(6, 1000);
+    const ogdMapped = ogdRows.map((r: { code: string; name: string }) => ({
+      id: `ogd:${r.code}`,
+      code: r.code,
+      name: r.name,
+      category: 'mandi',
+      defaultShelfLifeDays: 7,
+      createdAt: null,
+      source: 'data.gov.in' as const,
+    }));
+
+    const merged = new Map<string, any>();
+    for (const r of dbMapped) merged.set(String(r.code).toUpperCase(), r);
+    for (const r of ogdMapped) {
+      const k = String(r.code).toUpperCase();
+      if (!merged.has(k)) merged.set(k, r);
+    }
+
+    const data = Array.from(merged.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const dbCount = dbMapped.length;
+    const ogdCount = ogdMapped.length;
+    const total = data.length;
+    const ogdOnlyCount = data.filter((x) => x.source === 'data.gov.in').length;
+
+    res.json({ success: true, data, meta: { dbCount, ogdCount, ogdOnlyCount, total } });
   } catch (e) {
     next(e);
   }

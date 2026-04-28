@@ -229,3 +229,74 @@ export async function ingestOgdMandiForUserRegions(prisma: PrismaClient, params:
 export function isDataGovKeyConfigured(): boolean {
   return Boolean(String(process.env.DATA_GOV_IN_API_KEY || '').trim());
 }
+
+type OgdCatalogRow = Record<string, unknown>;
+
+function ogdPick(row: OgdCatalogRow, keys: string[]) {
+  for (const k of keys) {
+    const v = row[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+function normalizeCommodityNameForCatalog(v: string) {
+  return String(v || '').replace(/\s+/g, ' ').trim();
+}
+
+function commodityCodeFromNameForCatalog(name: string) {
+  const up = normalizeCommodityNameForCatalog(name).toUpperCase();
+  if (!up) return '';
+  return up.replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32);
+}
+
+export async function fetchOgdCommodityCatalog(
+  maxPages = 6,
+  pageSize = 1000
+): Promise<Array<{ code: string; name: string }>> {
+  const key = String(process.env.DATA_GOV_IN_API_KEY || '').trim();
+  const resourceId = String(process.env.OGD_MANDI_RESOURCE_ID || process.env.DATA_GOV_IN_RESOURCE_ID || '').trim();
+  if (!key || !resourceId) return [];
+
+  const unique = new Map<string, { code: string; name: string }>();
+  const pages = Math.max(1, Math.min(20, maxPages));
+  const limit = Math.max(100, Math.min(1000, pageSize));
+
+  for (let page = 0; page < pages; page += 1) {
+    const url = new URL(`https://api.data.gov.in/resource/${resourceId}`);
+    url.searchParams.set('api-key', key);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('offset', String(page * limit));
+
+    const ac = new AbortController();
+    const timeout = setTimeout(() => ac.abort(), 15000);
+
+    try {
+      const resp = await fetch(url.toString(), { signal: ac.signal, headers: { accept: 'application/json' } });
+      if (!resp.ok) break;
+
+      const body = (await resp.json()) as { records?: OgdCatalogRow[] };
+      const records = Array.isArray(body?.records) ? body.records : [];
+      if (!records.length) break;
+
+      for (const row of records) {
+        const name = normalizeCommodityNameForCatalog(
+          ogdPick(row, ['Commodity', 'commodity', 'comm_name', 'Cmmodity'])
+        );
+        if (!name) continue;
+        const code = commodityCodeFromNameForCatalog(name);
+        if (!code) continue;
+        if (!unique.has(code)) unique.set(code, { code, name });
+      }
+
+      if (records.length < limit) break;
+    } catch {
+      break;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
