@@ -106,6 +106,7 @@
         font-size: 0.8125rem;
       }
       input,
+      textarea,
       button,
       select {
         padding: 10px 12px;
@@ -366,9 +367,15 @@
       <div class="card">
         <h2>Run analysis</h2>
         <div class="row">
-          <input id="commodityCode" placeholder="Commodity (e.g. ONION)" style="min-width: 100px" />
-          <input id="sourceRegion" placeholder="Source (e.g. Delhi)" style="min-width: 120px" />
-          <input id="targetMarket" placeholder="Target (e.g. Noida)" style="min-width: 120px" />
+          <select id="commodityCode" style="min-width: 180px">
+            <option value="">Select commodity</option>
+          </select>
+          <select id="sourceRegion" style="min-width: 180px">
+            <option value="">Select source region</option>
+          </select>
+          <select id="targetMarket" style="min-width: 180px">
+            <option value="">Select target region</option>
+          </select>
           <input id="quantityTons" type="number" step="0.1" value="5" style="width: 80px" />
           <button type="button" id="generateBtn">Generate</button>
           <button type="button" id="globalScanBtn" class="secondary">Global scan</button>
@@ -509,6 +516,38 @@
           .join(' ');
       }
 
+      function populateAnalysisFilters(commodities, markets) {
+        const commoditySelect = document.getElementById('commodityCode');
+        const sourceSelect = document.getElementById('sourceRegion');
+        const targetSelect = document.getElementById('targetMarket');
+
+        const currentCommodity = commoditySelect.value;
+        const currentSource = sourceSelect.value;
+        const currentTarget = targetSelect.value;
+
+        const commodityOptions = ['<option value="">Select commodity</option>'].concat(
+          commodities
+            .slice()
+            .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code)))
+            .map((c) => `<option value="${esc(c.code)}">${esc(String(c.name || c.code))} (${esc(c.code)})</option>`)
+        );
+        commoditySelect.innerHTML = commodityOptions.join('');
+
+        const regions = [...new Set(markets.map((m) => String(m.region || '').trim()).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b))
+          .map((r) => ({ value: r, label: labelCase(r) }));
+
+        const regionOptions = ['<option value="">Select region</option>'].concat(
+          regions.map((r) => `<option value="${esc(r.value)}">${esc(r.label)}</option>`)
+        );
+        sourceSelect.innerHTML = regionOptions.join('');
+        targetSelect.innerHTML = regionOptions.join('');
+
+        if (currentCommodity && [...commoditySelect.options].some((o) => o.value === currentCommodity)) commoditySelect.value = currentCommodity;
+        if (currentSource && [...sourceSelect.options].some((o) => o.value === currentSource)) sourceSelect.value = currentSource;
+        if (currentTarget && [...targetSelect.options].some((o) => o.value === currentTarget)) targetSelect.value = currentTarget;
+      }
+
       function renderGlobalScan(d) {
         const prov = d.dataProvenance || {};
         const q = prov.mandiDataQuality || 'INSUFFICIENT';
@@ -638,6 +677,7 @@
             fetchJson('/api/v1/markets', { headers: headers() }),
             fetchJson('/api/v1/recommendations?limit=20', { headers: headers() }),
           ]);
+          populateAnalysisFilters(commodities.data || [], markets.data || []);
           document.getElementById('commoditiesCount').textContent = commodities.data.length;
           document.getElementById('marketsCount').textContent = markets.data.length;
           document.getElementById('recommendationsCount').textContent = recommendations.data.length;
